@@ -1,4 +1,4 @@
-from gmsPython._mixedTools import *
+from pyDatabases import gpy, OrdSet, noneInit
 import re
 
 # Four main types of methods: 
