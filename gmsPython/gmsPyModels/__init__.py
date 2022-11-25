@@ -1,1 +1,1 @@
-from .gmsPyModels import GmsPython, Submodule
+from .gmsPyModels import GmsPython, GmsPythonSimple, Submodule

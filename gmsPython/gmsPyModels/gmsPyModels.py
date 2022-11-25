@@ -1,6 +1,7 @@
 from gmsPython import gmsWrite, gmsPy
 from . import gmsPyGlobals
-import pyDatabases, pickle
+import pyDatabases, pickle, pandas as pd
+from pyDatabases import OrdSet, gpy, adjMultiIndexDB
 from pyDatabases.gpyDB_wheels import robust
 
 class GmsPython:
@@ -84,6 +85,7 @@ class GmsPython:
 		for m in self.m.values():
 			if hasattr(m,'initDB'):
 				robust.robust_merge_dbs(self.s.db,m.initDB(m=m.name),priority='first')
+
 	def groups(self):
 		return self.getAttrFromModules('groups')
 
@@ -152,3 +154,28 @@ class Submodule:
 	def state(self,k):
 		if hasattr(self,'states'):
 			return self.states[k] if k in self.states else self.states[self.state]
+
+class GmsPythonSimple(GmsPython):
+	""" A simplified version of the class GmsPython - a shell to build more specific classes on """
+	def __init__(self, checkStates = None, **kwargs):
+		super().__init__(**kwargs)
+		self._checkStates = OrdSet(pyDatabases.noneInit(checkStates, ['B']))
+
+	def states(self,m=None):
+		return {k: self._state(k) for k in self._checkStates}
+
+	def _state(self,k):
+		return self.s.standardInstance(state=k) | {attr: getattr(self,attr)(k) for attr in ('g_endo','g_exo','blocks','args','text','solve') if hasattr(self,attr)}
+
+	def groups(self,m=None):
+		return {g.name: g for g in self._groups(m=m)}
+
+	def initSymbol(self, k,**kwargs):
+		return getattr(self, f'_init_{k}')(**kwargs)
+
+	def initDB(self,m=None):
+		return robust.robust_merge_dbs(self.s.db, {k: self.initSymbol(k) for k in self._symbols} ,priority='first')
+
+	def initSymbolFlat(self, value, name=None, indices = None, **kwargs):
+		""" Initialize symbol with constant value across indices """
+		return gpy(value, **kwargs) if indices is None else gpy(pd.Series(value, index = indices if isinstance(indices,pd.Index) else adjMultiIndexDB.mergeDomains(indices,self.s.db), name = self.n(name)), **kwargs)
