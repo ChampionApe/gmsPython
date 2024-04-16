@@ -124,10 +124,12 @@ class GmsSettings:
 		db = pyDatabases.noneInit(db, self.db)
 		return {k: db[k] if k not in var_endo else gpyDB_wheels.adj.rc_AdjGpy(db[k], ('not',var_endo)) for k in self.Compile.getVariablesFromMetaGroup(self['g_exo']) if k in gpyDB.symbols_db(db)}
 
-	def partition_db(self,db=None):
+	def partition_db(self,db=None,checkOverlap = False):
 		db = self.db if db is None else db
 		d = {'non_var': db.getTypes(('set','subset','mapping','parameter','scalar_parameter')), 'var_endo': self.db_ss('g_endo',db=db), 'var_exo': self.db_ss('g_exo',db=db)}
-		# d['var_exo'] = self.inferVarExoFromVarEndo(d['var_endo'], db=db)
+		if checkOverlap:
+			d['var_exo'] = {k: v if k not in d['var_endo'] else gpyDB_wheels.adj.rc_AdjGpy(v, ('not',d['var_endo'][k])) for k,v in d['var_exo'].items()}
+			# d['var_exo'] = self.inferVarExoFromVarEndo(d['var_endo'], db=db)
 		d['residual'] = {k:v for k,v in db.getTypes(('scalar_variable','variable')).items() if k not in (list(d['var_endo'])+list(d['var_exo']))}
 		return d
 

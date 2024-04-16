@@ -1,4 +1,6 @@
 from ._gmsWrite import *
+from gmsPython._mixedTools import gridDB
+
 
 def standardArgs(settings, db, gdx, blocks = None, functions = None, run = True, prefix = '', prefix_run = '', options=None):
 	args = {'Root': writeRoot(**noneInit(options, {})), prefix+'Functions': writeFunctions(settings.Precompiler, settings.macros, f=functions), prefix+'Declare': writeDeclare(db, gdx=gdx), prefix+'Blocks': blocks}
@@ -10,7 +12,7 @@ def standardRun(settings, db, prefix =''):
 
 def SolveLoop(settings, dbT, db0 = None, name ='shock', subsetDB = True, loop = 'l1', solve=None, model=None, **kwargs):
 	if subsetDB:
-		x = settings.partition_db(db=dbT)
+		x = settings.partition_db(db=dbT, checkOverlap = True)
 		dbT.series.database = (x['non_var'] | x['var_exo'])
 	db = gridDB(noneInit(db0, settings.db), dbT, name, loop=loop,**kwargs)
 	text = loopUpdateSolve(loop, name, db, settings.db, db.updateDict, updateSolDict = db.updateSolDict, solve = noneInit(solve, settings['solve']), model = noneInit(solve, settings['name']))

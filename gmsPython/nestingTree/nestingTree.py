@@ -1,5 +1,5 @@
 import pandas as pd, pyDatabases
-from pyDatabases import gpyDB, gpyDB_wheels
+from pyDatabases import gpyDB, gpyDB_wheels, adj, adjMultiIndex
 from gmsPython._mixedTools import concatMultiIndices
 
 _ftype_inputs, _ftype_outputs = ('CES','CES_norm','MNL'), ('CET','CET_norm','MNL_out')
@@ -9,6 +9,58 @@ def checkOrIgnore(d,k):
 	return d[k] if k in d else k
 def reverseDict(d):
 	return {v:k for k,v in d.items()}
+
+def trimNestingStructure(m, sparsity, maxIter = 10):
+	""" Trim nesting structure in pandas multiindex 'm' with a 'sparsity' pattern on the inputs. NB: Only works on pure input-like trees """
+	t = tree(name = 'test', tree = m.tolist())
+	t.attrs_from_tree()
+	nInputs = sparsity.to_frame(index=False).groupby('s').count().n
+	oneInputSectors = nInputs[nInputs == 1]
+	# Define new mapping for relevant sectors:
+	mapOneInput = adjMultiIndex.applyMult(adj.rc_pd(t.get('output'), oneInputSectors), 
+										  adj.rc_pd(sparsity, oneInputSectors).rename(['s','nn']))
+	mMultipleGoods = adj.rc_pd(m, ('not', oneInputSectors))
+	t = tree(name = 'test', tree = mMultipleGoods.to_list())
+	t.attrs_from_tree()
+	inputs = t.get('input')
+
+	# 2. Remove inputs that are not used:
+	noUse = adj.rc_pd(t.get('input'), ('not', sparsity))
+	mMultipleGoods = adj.rc_pd(t.get('map'), ('not', adj.rc_pd(noUse, alias = {'n':'nn'})))
+
+	# 2.A: Number of nodes for each parent node in the system:
+	nNodes = mMultipleGoods.to_frame(index=False).groupby(['s','n']).count()
+
+	# Start iteration checks
+	i = 0
+	t = tree(name = 'test', tree=mMultipleGoods.tolist())
+	t.attrs_from_tree()
+	inputs_i = t.get('input')
+	while (min(nNodes['nn'])<=1) & (not inputs_i.difference(inputs).empty):
+		i = i+1
+		mMultipleGoods, nNodes, inputs_i = trim_ite(mMultipleGoods, nNodes)
+		mMultipleGoods = adj.rc_pd(mMultipleGoods, ('not', inputs_i.difference(inputs).rename(['s','nn'])))
+		if i==maxIter:
+			raise StopIteration("Tree trimming did not converge")
+	return mMultipleGoods.union(mapOneInput)
+
+def trim_ite(m, nNodes):
+	# 2B: Define mapping where knots have a single node:
+	nodesOneChild = nNodes[nNodes['nn'] == 1].index
+	mapOneNode = adj.rc_pd(m, nodesOneChild)
+	# We make an exception if a combination (s, x) enters as both a knot and a branch. In this case, we cannot remove the parent node of 'x' (as we need this to maintain the tree structure)
+	keepKnots = adj.rc_pd(mapOneNode.droplevel('nn').unique(), mapOneNode.droplevel('n').rename(['s','n']))
+	nodesOneChild = nodesOneChild.difference(keepKnots)
+	mapOneNode = adj.rc_pd(m, nodesOneChild)
+	m = adj.rc_pd(m, ('not', nodesOneChild))
+	# Apply map to change parent nodes
+	mapNewNodes = adjMultiIndex.applyMult(m, mapOneNode.rename(['s','nn','new'])).droplevel('nn').rename(['s','n','nn'])
+	m = adj.rc_pd(m, ('not', nodesOneChild.rename(['s','nn']))).union(mapNewNodes)
+	# 2A: Return number of nodes for each one now:
+	nNodes = m.to_frame(index = False).groupby(['s','n']).count()
+	t = tree(name='test', tree = m.tolist())
+	t.attrs_from_tree()
+	return m, nNodes, t.get('input')
 
 class tree:
 	def __init__(self, name, tree = None, io = None, db = None, f = None,**ns):
