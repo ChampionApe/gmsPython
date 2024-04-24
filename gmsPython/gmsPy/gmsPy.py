@@ -1,227 +1,149 @@
-from ._gmsPy import *
-from pyDatabases import gpyDB, gpyDB_wheels
-from dreamtools.gamY import Precompiler
-import pickle, gams, os
-gmspyStandardOrder =  ('Root','Functions','Declare','Blocks','Fix','Unfix','Model','Solve')
+from gmsPython.auxfuncs import *
+from pyDatabases import OrdSet, noneInit
+from copy import deepcopy
+from gmsPython.gmsWrite.gmsWrite import Syms
 
-# Auxiliary functions:
-def arg2string(x,t=None):
-	if t == 'file':
-		with open(x,"r") as f:
-			return f.read()
-	elif isinstance(t,Precompiler):
-		return t(as_string=x) if isinstance(x,str) else t(**x)
-	elif t == 'gamY':
-		return Precompiler(x)()
-	elif isinstance(x,str):
-		return x
+# class metaGroup(Group):
+# 	def __init__(self, name, groups = None):
+# 		super().__init__()
+# 		self.groups = noneInit(groups, {})
 
-def sortedArgs(args, order = gmspyStandardOrder):
-	return {k:v for d in ({kk:vv for kk,vv in args.items() if kk.endswith(o)} for o in order) for k,v in d.items()}
+# 	@property
+# 	def groupsCopy(self):
+# 		return {k: deepcopy(v) for k,v in self.groups.items()}
 
-def mergeDictAttrs(l,attr,sort=False):
-	return sortedArgs({k:v for d in l for k,v in getattr(d,attr).items()},order=sort) if sort else {k:v for d in l for k,v in getattr(d,attr).items()}
+# 	def __call__(self):
+# 		for g in self.groups.values():
+# 			g()
 
-def merge2dbs(main,other_i,residual=True):
-	d = other_i.partition_db()
-	gpyDB_wheels.robust.robust_merge_dbs(main.db, d['non_var'],priority='second')
-	gpyDB_wheels.robust.robust_merge_dbs(main.db, d['var_endo'],priority='second')
-	gpyDB_wheels.robust.robust_merge_dbs(main.db, d['var_exo'],priority='first')
-	if residual:
-		gpyDB_wheels.robust.robust_merge_dbs(main.db, d['residual'],priority='first')
+# 	def getVariablesFromMetaGroup(self, metaGroup):
+# 		""" metaGroup = iterator of strings referring to existing group names """
+# 		return OrdSet.union(*[OrdSet(self.groups[g].conditions) for g in metaGroup])
 
-def mergeDbs(main,other,residual=True):
-	[merge2dbs(main,other_i,residual=residual) for other_i in other];
-	return main.db
+# 	def metaGroup(self,db,gs='all'):
+# 		if isinstance(gs,Group):
+# 			return gs
+# 		elif gs == 'all':
+# 			return Group('metagroup',g=self.groups.values())()
+# 		else:
+# 			return Group('metagroup',g=gs)()
 
-def mergeOrdSets(l,attr,state):
-	return OrdSet([x for y in l for x in y.try_state(state)[attr]])
+# 	def fixGroupsText(self,db,gs):
+# 		metagroup = self.metaGroup(db,gs=gs)
+# 		return self.fixGroupText(db,metagroup)
 
-def attrFromState(s,attr,state):
-	return s[attr] if state not in s.try_state(state) else s.try_state(state)[attr] 
+# 	def fixGroupText(self,db,g):
+# 		return "\n".join([f"{gmsWrite.writeGpy(db[k],c=v,l='.fx')} = {gmsWrite.writeGpy(db[k],l='.l')};" for k,v in g.conditions.items()])
 
-def mergeStates_k(main, other, l, k, mergeArgs = False, order=gmspyStandardOrder):
-	d = {'name': main.name+'_'+k, 'g_endo': mergeOrdSets(l,'g_endo',k), 'g_exo': mergeOrdSets(l,'g_exo',k),'blocks':mergeOrdSets(l,'blocks',k), 'solve': main.try_state(k)['solve']}
-	return d | {'args': {}, 'text': {}} if mergeArgs is False else d | {'args': sortedArgs({key:value for di in [attrFromState(other_i,'args',k) for other_i in l] for key,value in di.items()},order=order),
-											 'text': sortedArgs({key:value for di in [attrFromState(other_i,'text',k) for other_i in l] for key,value in di.items()},order=order)}
+# 	def unfixGroupsText(self,db,gs):
+# 		metagroup = self.metaGroup(db,gs=gs)
+# 		return self.unfixGroupText(db,metagroup)
 
-def mergeStates(main,other,l,mergeArgs=False,order=None):
-	order = gmspyStandardOrder if order is None else order
-	return {k: mergeStates_k(main,other,l,k,mergeArgs=mergeArgs,order=order) for other_i in l for k in other_i.states}
+# 	def unfixGroupText(self,db,g):
+# 		return "\n".join([f"{gmsWrite.writeGpy(db[k],c=v,l='.lo')} = -inf;\n{gmsWrite.writeGpy(db[k],c=v,l='.up')} = inf;" for k,v in g.conditions.items()])
 
-def mergeGmsSettings(main,other,order=None,residual=True,addStates=False):
-	l = [main]+other
-	[main.__setattr__(k,v) for k,v in {k: mergeDictAttrs(l,k) for k in ('macros','locals')}.items()]
-	mergeCompile(main.Compile,[i.Compile for i in other])
-	main.states = mergeStates(main, other,l,order=order)
-	main.Compile.run()
-	mergeDbs(main,other,residual=residual)
-	return main
+class Group:
+	def __init__(self,name, v=None, g=None, sub_v=None, sub_g=None):
+		self.name = name
+		self.v = noneInit(v,[])
+		self.g = OrdSet(noneInit(g,[]))
+		self.sub_v = noneInit(sub_v,[])
+		self.sub_g = OrdSet(noneInit(sub_g,[]))
+		self.out = {}
+		self.out_neg = {}
 
-class GmsSettings:
-	# ---	0: Initialization	--- #
-	def __init__(self,f=None,**kwargs):
-		if f:
-			with open(f,"rb") as file:
-				self = pickle.load(file)
+	def n(self, k):
+		return OrdSet([v.name for v in k])
+
+	def __call__(self):
+		partition = OrdSet.partition(self.n(self.g), self.n(self.sub_g)) # tuple with p[0] = overlap, p[1] = only in first, p[2] only in second
+		gs = OrdSet([g for g in self.g if g.name in partition[1]])
+		sub_gs = OrdSet([g for g in self.sub_g if g.name in partition[2]])
+		[self.add(x) for x in self.v]
+		[self.addGroup(g) for g in gs];
+		[self.checkIfNone_out(name) for name in self.out];
+		[self.sub(x) for x in self.sub_v];
+		[self.subGroup(g) for g in sub_gs];
+		[self.checkIfNone_out_neg(name) for name in list(self.out_neg)];
+		[self.removeIte(name,conds) for name,conds in self.out_neg.items()];
+		return self
+
+	def fix(self, db = None):
+		return "\n".join([self.fixVar(name, self.conditions, db = db) for name in self.out])
+	def unfix(self, db = None):
+		return "\n".join([self.unfixVar(name, self.conditions, db = db) for name in self.out])
+	def fixVar(self, name, c, db = None):
+		return f"{self.writeVar(name, c, db = db, l = 'fx')} = {self.writeVar(name, c, db = db, l = '.l')};"
+	def unfixVar(self, name, c, db = None):
+		return f"{self.writeVar(name, c, db = db, l='.lo')} = -inf;\n{self.writeVar(name, c, db = db, l = 'up')} = inf;"
+	def writeVar(self, name, c, db = None, **kwargs):
+		return getattr(self, f'writeVar_{db.__class__.__name__}')(name, db, c, **kwargs)
+	def writeVar_NoneType(self, name, db, c, **kwargs):
+		return Syms.str_var(name, c = c[name], **kwargs)
+	def writeVar_GpyDB(self, name, db, c, **kwargs):
+		return Syms.gpy(db[name], c = c[name], **kwargs)
+	def add(self, x):
+		return getattr(self, f'add_{x.__class__.__name__}')(x)
+	def add_tuple(self, tup):
+		self.add_(tup[0], tup[1])
+	def add_str(self, name):
+		self.add_(name, None)
+	def add_(self, name, condition):
+		if name not in self.out:
+			self.out[name] = [condition]
+		elif condition not in self.out[name]:
+			self.out[name] += [condition]
+	def addIte(self, name, conds):
+		if name not in self.out:
+			self.out[name] = conds
 		else:
-			[setattr(self,k,pyDatabases.dictInit(k,v,kwargs)) for k,v in self.simpleStdSettings.items()];
-			self.Compile = pyDatabases.dictInit('Compile',Compile(groups=pyDatabases.dictInit('groups',None,kwargs)),kwargs) # If 'Compile' in kwargs, use this. Else, use 'groups' in kwargs to init.
-			self.Precompiler = pyDatabases.dictInit('Precompiler',Precompiler(**self.Precompiler_options),kwargs) # If 'Precompiler' in kwargs use this. Else, use 'precompiler_options' to init.
-			self.db = pyDatabases.dictInit('db',gpyDB.GpyDB(ws=pyDatabases.dictInit('ws',None,kwargs)), kwargs) # If 'db' in kwargs use this. Else, use 'ws' to init.
-			self.states = pyDatabases.dictInit('states',{'B': self.standardInstance()},kwargs) # if 'states' in kwargs use this. Else, use std. instance.
+			self.out[name] += [c for c in conds if c not in self.out[name]]
+	def addGroup(self, g):
+		[self.addIte(k,v) for k,v in g.conditions.items()];
 
+	def sub(self, x):
+		return getattr(self, f'sub_{x.__class__.__name__}')(x)
+	def sub_tuple(self, tup):
+		self.sub_(tup[0], tup[1])
+	def sub_str(self, name):
+		self.sub_(name, None)
+	def sub_(self, name, condition):
+		if name not in self.out_neg:
+			self.out_neg[name] = [condition]
+		elif condition not in self.out_neg[name]:
+			self.out_neg[name] += [condition]
+	def subIte(self, name, conds):
+		if name not in self.out_neg:
+			self.out_neg[name] = conds
+		else:
+			self.out_neg[name] += [c for c in conds if c not in self.out_neg[name]]
+	def subGroup(self, g):
+		[self.subIte(k,v) for k,v in g.conditions.items()];
+
+	def checkIfNone_out(self, name):
+		if None in self.out[name]:
+			self.out[name] = [None]
+	def checkIfNone_out_neg(self, name):
+		if None in self.out_neg[name]:
+			if name in self.out:
+				self.out.__delitem__(name)
+			self.out_neg.__delitem__(name)
+
+	def conditionVar(self,name):
+		if None in self.out[name]:
+			return self.conditionsFromSub(name) if name in self.out_neg else None
+		else:
+			return ('and', [self.conditionsFromAdd(name), self.conditionsFromSub(name)]) if name in self.out_neg else self.conditionsFromAdd(name)
+	def conditionsFromAdd(self, name):
+		return ('or', self.out[name]) if len(self.out[name])>1 else self.out[name][0]
+	def conditionsFromSub(self, name):
+		return ('not', self.out_neg[name][0]) if len(self.out_neg[name]) == 1 else ('not', ('or', self.out_neg[name]))
 	@property
-	def simpleStdSettings(self):
-		return {'name': 'name', 'macros': {},'locals':{},'mainDbName': None, 'state':'B','Precompiler_options':{'has_read_file':True}}
-
-	def standardInstance(self,state='B'):
-		return {'name': f"{self.name}_{state}", 'g_endo': OrdSet(), 'g_exo': OrdSet(), 'blocks': OrdSet(), 'solve': None, 'args': {}, 'text': {}}
-
-	def __getitem__(self,item):
-		try:
-			return self.states[self.state][item]
-		except KeyError:
-			return getattr(self,item)
-
-	def __setitem__(self,item,value):
-		if item in ('g_endo','g_exo','blocks'):
-			self.states[self.state][item] = OrdSet(value)
-		else:
-			self.states[self.state][item] = value
-
-	def setstate(self,state=None):
-		if state is None:
-			self.state = list(self.states.keys())[0]
-		elif state in self.states:
-			self.state = state
-		else:
-			self.states[state] = self.standardInstance(state=state)
-			self.state = state
-
-	def try_state(self,state):
-		return self.states[self.state] if state not in self.states else self.states[state]
-
-	# ---	1: Subsetting	--- #
-	def metagroup(self,g,db=None):
-		""" g ∈ {'g_exo','g_endo'} """
-		return self.Compile.metaGroup(self.db if db is None else db, gs=self[g].v)
-
-	def var_ss(self,var,g,db=None):
-		""" type(var) == str, type(g) == _GmsPy.Group"""
-		db = self.db if db is None else db
-		if db[var].type == 'scalar_variable':
-			return db[var] if var in g.conditions else None
-		else:
-			return gpyDB_wheels.adj.rc_AdjGpy(db[var],c=g.conditions[var],pm=True) if var in g.conditions else None
-
-	def db_ss(self,g,db=None):
-		""" g ∈ {'g_exo','g_endo'} """
-		g = self.metagroup(g,db=db)
-		return {k:v for k,v in {s: self.var_ss(s,g,db=db) for s in g.conditions if s in gpyDB.symbols_db(db)}.items() if v is not None}
-
-	def inferVarExoFromVarEndo(self, var_endo, db = None):
-		db = pyDatabases.noneInit(db, self.db)
-		return {k: db[k] if k not in var_endo else gpyDB_wheels.adj.rc_AdjGpy(db[k], ('not',var_endo)) for k in self.Compile.getVariablesFromMetaGroup(self['g_exo']) if k in gpyDB.symbols_db(db)}
-
-	def partition_db(self,db=None,checkOverlap = False):
-		db = self.db if db is None else db
-		d = {'non_var': db.getTypes(('set','subset','mapping','parameter','scalar_parameter')), 'var_endo': self.db_ss('g_endo',db=db), 'var_exo': self.db_ss('g_exo',db=db)}
-		if checkOverlap:
-			d['var_exo'] = {k: v if k not in d['var_endo'] else gpyDB_wheels.adj.rc_AdjGpy(v, ('not',d['var_endo'][k])) for k,v in d['var_exo'].items()}
-			# d['var_exo'] = self.inferVarExoFromVarEndo(d['var_endo'], db=db)
-		d['residual'] = {k:v for k,v in db.getTypes(('scalar_variable','variable')).items() if k not in (list(d['var_endo'])+list(d['var_exo']))}
-		return d
-
-	# ---	2: Writing methods	--- #
-	def reset_Precompiler(self):
-		self.Precompiler = Precompiler(**(self.Precompiler_options | {'locals_': self.Precompiler.locals, 'user_functions': self.Precompiler.user_functions}))
-
-	def write(self,check_root=True,reset=True):
-		""" compile text from args. """
-		if reset:
-			self.reset_Precompiler()
-		if check_root:
-			self['args'] = self.check_root(self['args'])
-		self['text'] = {k: arg2string(v,self.Precompiler) for k,v in self['args'].items()}
-		return self['text']
-
-	def writeSolveState(self, state):
-		""" get the text needed to resolve state"""
-		self.setstate(state)
-		return '\n'.join({k: arg2string(v,self.Precompiler) for k,v in gmsWrite.standardRun(self, self.db).items()}.values())
-
-	def check_root(self,args):
-		return {'Root': gmsWrite.writeRoot()} | args if not (list(args.keys()))[0].endswith(('Root','Root.gms','Root.gmy','Root.txt')) else args
-
-	def stdArgs(self,blocks='',functions=None,prefix=None,prefix_run=None,run=True):
-		self.mainDbName = self.db.name
-		return gmsWrite.standardArgs(self,self.db,f"""%{self.db.name}%""",blocks=blocks,functions=functions,run=run,prefix=self.name+'_' if prefix is None else prefix, prefix_run = self['name']+'_' if prefix_run is None else prefix_run)
-
-	def sortedArgs(self, order = gmspyStandardOrder):
-		return sortedArgs(self['args'],order=order)
-
-class GmsModel:
-	def __init__(self,ws=None,options=None,**kwargs):
-		self.init_ws(ws)
-		self.init_opt(**pyDatabases.noneInit(options,{}),**kwargs)
-
-	def init_ws(self,ws):
-		if isinstance(ws,gams.GamsWorkspace):
-			self.ws = ws
-		elif type(ws) is str:
-			self.ws = gams.GamsWorkspace(working_directory=ws)
-		elif ws is None:
-			self.ws = gams.GamsWorkspace()
-		else:
-			raise TypeError(f"The GmsModel class cannot be initialized with ws type {type(ws)}")
-
-	def write_options(self,options_string):
-		with open(os.path.join(self.ws.working_directory,self.opt_name), "w") as f:
-			f.write(options_string)
-
-	def init_opt(self,opt=None,opt_file=None,opt_name=None,**kwargs):
-		self.opt_name = opt_name if opt_name else "options.opt"
-		if isinstance(opt,str):
-			self.write_options(opt)
-			self.opt = self.ws.add_options()
-			self.opt.file = 1
-		elif isinstance(opt, gams.GamsOptions):
-			self.opt = opt
-		elif opt_file:
-			self.opt = self.ws.add_options(opt_file=opt_file)
-			self.opt.file = 1
-		else:
-			self.opt = self.ws.add_options()
-		[setattr(self.opt,key,value) for key,value in kwargs.items()];
-		
-	@property
-	def work_folder(self):
-		return self.ws.working_directory
-
-	def run(self,run=None,runfile=None,options_add=None,options_run=None,db_as_gpy=True):
-		self.add_job(run=run,runfile=runfile,options=options_add)
-		self.run_job(options=options_run)
-		self.out_db = gpyDB.GpyDB(db=self.job.out_db,ws=self.ws) if db_as_gpy else None
-
-	def add_job(self,run=None, runfile = None, options=None):
-		if run:
-			self.job = self.ws.add_job_from_string(run,**pyDatabases.noneInit(options,{}))
-		elif runfile:
-			runfile = runfile if os.path.isabs(runfile) else os.path.join(self.work_folder,runfile)
-			self.job = self.ws.add_job_from_file(runfile,**pyDatabases.noneInit(options,{}))
-
-	def run_job(self,options=None):
-		self.job.run(gams_options=self.opt,**pyDatabases.noneInit(options,{}))
-
-	def addlocal(self,placeholder,local):
-		self.opt.defines[placeholder] = local
-
-	def addDB(self,db,db_str=None,merge=True,mergeGdx='clear',exportdb=True,exportTo=None):
-		""" Add a GpyDB by specifying db_str or exportTo. Writes a gdx file + add it as a placeholder in the model. """
-		db_str = os.path.join(db.work_folder if exportTo is None else exportTo,db.name) if db_str is None else db_str
-		if merge:
-			db.merge_internal(merge=mergeGdx)
-		if exportdb:
-			db.database.export(db_str)
-		self.addlocal(db.name, db_str)
+	def conditions(self):
+		return {name: self.conditionVar(name) for name in self.out}
+	def removeIte(self,name,conds):
+		""" For the variable 'name', remove all conditions 'conds' from self.out and then self.out_neg"""
+		if name in self.out:
+			condition_overlap = [c for c in conds if c in self.out[name]]
+			self.out[name] = [c for c in self.out[name] if c not in condition_overlap]
+			self.out_neg[name] = [c for c in self.out_neg[name] if c not in condition_overlap]

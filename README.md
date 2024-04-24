@@ -1,2 +1,2 @@
-# GamsPythonModels
-GamsPythonModels, version 0.0.2
+# gmsPython 
+gmsPython version 0.1.0
