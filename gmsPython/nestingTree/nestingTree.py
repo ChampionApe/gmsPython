@@ -76,7 +76,7 @@ class AggTree:
 		self.name=name
 		self.ns = self.standardNamespace | ns
 		self.trees = noneInit(trees,{})
-		self.prune = ('n','nn','nnn','s','input','output','int') 
+		self.prune = ('n','nn','nnn','s','input','output','int')
 		self.db = gpyDB.GpyDB(ws = ws, alias=[(self.n('n'),self.n('nn')), (self.n('n'),self.n('nnn'))], name = self.name)
 
 	@property

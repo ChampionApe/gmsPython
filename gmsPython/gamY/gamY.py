@@ -233,6 +233,7 @@ class Precompiler:
     text = self.parse(text, top_level=True)
     text = self.processed_text + text
     text = self.dedent_dollar(text)
+    self.has_read_file = True
     return self.restore_temporary_substitutions(text)
 
   def parse(self, text, top_level=False):

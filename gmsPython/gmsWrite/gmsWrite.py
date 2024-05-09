@@ -23,6 +23,22 @@ def list2str(l):
 	return '[{x}]'.format(x=','.join(l)) if l else ''
 def lagIdx(lag, item):
 	return lag.get(item,'') if isinstance(lag, dict) else lag
+def eq_(k,v):
+	return f'{k}={v}'
+
+def writeOptions(**options):
+	return ', '.join([eq_(k,v) for k,v in (default_options_root | options).items()])
+
+class StdArgs:
+	@staticmethod
+	def root(**options):
+		return f"""
+$SETLOCAL qmark ";
+OPTION {writeOptions(**options)};
+"""
+	@staticmethod
+	def funcs(**kwargs):
+		return default_user_functions
 
 class Syms:
 	@staticmethod
@@ -51,7 +67,7 @@ class Syms:
 		return s.name+l+Syms.gpyDomains(s, alias, lag)+Syms.gpyCondition(c)
 	@staticmethod
 	def gpy_par(s = None, c = None, alias = None, lag = None, **kwargs):
-		return s.name+Syms.gpyDomains(s, alias, lag)+Syms.gpyCondition(c)
+		return s.name+Syms.gpyDomains(s, alias = alias, lag = lag)+Syms.gpyCondition(c)
 	@staticmethod
 	def gpy_scalarVar(s = None, c = None, l = "", **kwargs):
 		return s.name+l+Syms.gpyCondition(c)
@@ -59,8 +75,8 @@ class Syms:
 	def gpy_scalarPar(s = None, c = None, **kwargs):
 		return s.name+Syms.gpyCondition(c)
 	@staticmethod
-	def gpyDomains(s, alias, lag):
-		return list2str([alias.get(item,item) + str(lagIdx(lag, item)) for item in s.domains])
+	def gpyDomains(s, alias = None, lag = None):
+		return list2str([noneInit(alias, {}).get(item,item) + str(lagIdx(noneInit(lag, {}), item)) for item in s.domains])
 	@staticmethod
 	def gpyCondition(c):
 		return '' if c is None else f"$({Syms.point(c)})"

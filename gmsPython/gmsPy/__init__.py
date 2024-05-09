@@ -1,1 +1,1 @@
-from .gmsPy import Group
+from .gmsPy import Group, jTerms

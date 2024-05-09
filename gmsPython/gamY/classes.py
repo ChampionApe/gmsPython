@@ -96,11 +96,12 @@ class Variable:
 class Equation:
     """Data container for equations"""
 
-    def __init__(self, name="", sets="", conditions="", LHS="", RHS=""):
+    def __init__(self, name="", sets="", conditions="", LHS="", eqn_type="", RHS=""):
         self.name = name
         self.sets = sets.lower()
         self.conditions = conditions.lower()
         self.LHS = LHS
+        self.eqn_type = eqn_type
         self.RHS = RHS
 
         self._name = name[1:]  #  Name without E, usefull as slicing is not usable in python string format method
