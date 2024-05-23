@@ -51,7 +51,6 @@ def polGridText(n, i, ϕ):
 
 class jTerms:
 	""" Use comiled block of equations from gamY to define Groups of j-terms, adjusted blocks etc. """	
-
 	def __init__(self, compiler):
 		self.compiler = compiler
 
@@ -75,8 +74,10 @@ class jTerms:
 		initScalar = f'Scalar {loopName};\n'
 		loop = strBlock(f'for ({loopName} = 1 to {n},', (self.adjustGroup_v(v, n, loopName, ϕ=ϕ) for v in self.pGroup.out), end = f"{self.solve});")
 		return decl+init+initScalar+loop
+
 	def adjustGroup_v(self, v, n, loopName, ϕ = 1):
 		return f"""{self.group.writeVar(v.lstrip('par_'), self.group.conditions, l = '.fx')} = {polGridText(n,loopName, ϕ)}*{self.pGroup.writeVar(v)};"""
+
 	def pGroupFromGroup_v(self, v):
 		return self.pGroup.writeVar(v, self.pGroup.conditions) +'='+self.group.writeVar(v.lstrip('par_'), l = '.l')+';'
 
