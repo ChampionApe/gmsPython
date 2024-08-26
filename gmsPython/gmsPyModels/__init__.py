@@ -1,1 +1,1 @@
-from .gmsPyModels import Model, Module
+from .gmsPyModels import GModel, Model, Module

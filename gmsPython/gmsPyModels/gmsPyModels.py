@@ -2,8 +2,10 @@ from gmsPython.auxfuncs import *
 import os, pickle
 from pyDatabases import noneInit
 from pyDatabases.gpyDB import GpyDB
+from gmsPython.gmsWrite.gmsWrite import StdArgs, FromDB
 from gmsPython.gamY.gamY import Precompiler
 from gmsPython.gmsPy.gmsPy import jTerms
+
 
 class Model:
 	""" Simple shell for models defined with namespaces, databases, compiler etc.."""
@@ -94,3 +96,118 @@ class Module:
 			return self.ns[item] if m is None else self.m[m].n(item)
 		except KeyError:
 			return item
+
+class GModel(Model):
+	""" 'Model' class with some a lot of added structure """
+	def __init__(self, defaultModel = 'model_B', **kwargs):
+		super().__init__(**kwargs)
+		self.defaultModel = defaultModel # backup model
+
+	def modelName(self, state = 'B', **kwargs):
+		return '_'.join(['M',self.name,state])
+
+	# groups:
+	@property
+	def _groups(self):
+		return (n for n in dir(type(self)) if n.startswith('group_'))
+	@property
+	def _metaGroups(self):
+		return (n for n in dir(type(self)) if n.startswith('metaGroup_'))
+	def initGroups(self):
+		self.groups = {g.name: g for g in (getattr(self, k) for k in self._groups)}
+		[grp() for grp in self.groups.values()]; # initialize groups
+		metaGroups = {g.name: g for g in (getattr(self, k) for k in self._metaGroups)}
+		[grp() for grp in metaGroups.values()]; # initialize metagroups
+		self.groups.update(metaGroups)
+
+	# model specs:
+	@property
+	def _models(self):
+		return (n for n in dir(type(self)) if n.startswith('model_'))
+	@property
+	def textBlocks(self):
+		""" dict where values are written as text blocks used to define equations of the model """
+		return {}
+	def getModel(self, state = 'B', **kwargs):
+		return getattr(self, f'model_{state}') if hasattr(self, f'model_{state}') else getattr(self,self.defaultModel)
+	def defineModel(self, **kwargs):
+		return f"""$Model {self.modelName(**kwargs)} {','.join(self.getModel(**kwargs))};"""
+
+	# write methods
+	def solveStatement(self, **kwargs):
+		return f""" solve {self.modelName(**kwargs)} using CNS;"""
+
+	def write_gamY(self, state = 'B'):
+		return self.text+self.solveText(state = state)
+	def write(self, state = 'B'):
+		return self.compiler(self.write_gamY(state = state), has_read_file = False)
+	def _writeModel(self, n):
+		return f"""$Model {n.replace('model', f'M_{self.name}',1)} {','.join(getattr(self,n))};"""
+	@property
+	def writeModels(self):
+		return '\n'.join([self._writeModel(n) for n in self._models])
+	@property
+	def writeBlocks(self):
+		return ''.join(self.textBlocks.values())
+	@property
+	def writeInit(self):
+		return getattr(self,'textInit') if hasattr(self,'textInit') else ''
+	@property
+	def writeFuncs(self):
+		return getattr(self,'textFuncs') if hasattr(self,'textFuncs') else ''
+
+	def fixText(self, state ='B'):
+		return self.groups[f'{self.name}_exo_{state}'].fix(db = self.db)
+	def unfixText(self, state = 'B'):
+		return self.groups[f'{self.name}_endo_{state}'].unfix(db = self.db)
+
+	@property
+	def text(self):
+		return f"""
+{StdArgs.root()}
+{StdArgs.funcs()}
+# DEFINE LOCAL FUNCTIONS/MACROS:
+{self.writeFuncs}
+
+# DECLARE SYMBOLS FROM DATABASE:
+{FromDB.declare(self.db)}
+# LOAD SYMBOLS FROM DATABASE:
+{FromDB.load(self.db, gdx = self.db.name)}
+# WRITE INIT STATEMENTS FROM MODULES:
+{self.writeInit}
+
+# WRITE BLOCKS OF EQUATIONS:
+{self.writeBlocks}
+
+# DEFINE MODELS:
+{self.writeModels};
+"""
+
+	def solveText(self, **kwargs):
+		return f"""
+# Fix exogenous variables in state:
+{self.fixText(**kwargs)}
+
+# Unfix endogenous variables in state:
+{self.unfixText(**kwargs)}
+
+# solve:
+{self.solveStatement(**kwargs)}
+"""
+
+	# Solve methods 
+	def jSolve(self, n, state = 'B', loopName = 'i', ϕ = 1, solve = None):
+		""" Solve model from scratch using the jTerms approach."""
+		mainText = self.compiler(self.text, has_read_file = False)
+		jModelStr = self.j.jModel(self.modelName(state=state), self.groups.values(), db = self.db, solve = noneInit(solve, self.solveStatement(state = state))) # create string that declares adjusted $j$-terms
+		fixUnfix = self.j.group.fix()+self.unfixText(state=state)+self.j.solve
+		loopSolve = self.j.jLoop(n, loopName = loopName, ϕ = ϕ)
+		self.job = self.ws.add_job_from_string(mainText+jModelStr+fixUnfix+loopSolve)
+		self.job.run(databases = self.db.database)
+		return GpyDB(self.job.out_db, ws = self.ws)
+
+	def solve(self, text = None, state = 'B'):
+		self.job = self.ws.add_job_from_string(noneInit(text, self.write(state = state)))
+		self.job.run(databases = self.db.database)
+		self.out_db = GpyDB(self.job.out_db, ws = self.ws)
+		return self.out_db

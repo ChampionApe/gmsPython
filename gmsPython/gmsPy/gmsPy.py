@@ -91,7 +91,7 @@ class jTerms:
 		return strBlock(f"$BLOCK j_{name}", (jTerms.eq_add_jTerm(eq) for eq in block.values()), end = "$ENDBLOCK")
 	@staticmethod
 	def eqToGroup(eq):
-		return (jTerms.jTerm(eq), eq.conditions[2:-1]) if eq.conditions else jTerms.jTerm(eq)
+		return (jTerms.jTerm(eq), eq.conditions[2:-1]) if eq.conditions else (jTerms.jTerm(eq), None)
 	@staticmethod
 	def jTerm(eq):
 		return jTerms.jName(eq)+eq.sets
@@ -133,6 +133,7 @@ class Group:
 		[self.subGroup(g) for g in sub_gs];
 		[self.checkIfNone_out_neg(name) for name in list(self.out_neg)];
 		[self.removeIte(name,conds) for name,conds in self.out_neg.items()];
+		[self.checkIfEmpty_out(name) for name in list(self.out)];
 		return self
 
 	def declare(self, db = None, exceptions = None):
@@ -201,6 +202,9 @@ class Group:
 			if name in self.out:
 				self.out.__delitem__(name)
 			self.out_neg.__delitem__(name)
+	def checkIfEmpty_out(self, name):
+		if not self.out[name]:
+			self.out.__delitem__(name)
 
 	def conditionVar(self,name):
 		if None in self.out[name]:

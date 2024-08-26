@@ -46,7 +46,6 @@ class Syms:
 		""" Simple writing method where s is a string"""
 		domains = Syms.str_getDomains(s)
 		return s.rpartition(domains)[0]+l+domains+Syms.gpyCondition(c) if domains else s+l+Syms.gpyCondition(c)
-
 	@staticmethod
 	def str_getDomains(text):
 		return text[text.find('['):text.find(']')+1] if '[' in text else ''
@@ -79,7 +78,7 @@ class Syms:
 		return list2str([noneInit(alias, {}).get(item,item) + str(lagIdx(noneInit(lag, {}), item)) for item in s.domains])
 	@staticmethod
 	def gpyCondition(c):
-		return '' if c is None else f"$({Syms.point(c)})"
+		return '' if c in (None, np.nan) else f"$({Syms.point(c)})"
 	@staticmethod
 	def point(vi):
 		return getattr(Syms, f'point_{vi.__class__.__name__}')(vi)

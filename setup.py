@@ -5,7 +5,7 @@ with open("README.md", "r") as file:
 
 setuptools.setup(
   name="gmsPython",
-  version="0.1.2",
+  version="0.1.3",
   author="Rasmus K. Skjødt Berg",
   author_email="rasmus.kehlet.berg@econ.ku.dk",
   description="Automating GAMS models and execution from Python",
