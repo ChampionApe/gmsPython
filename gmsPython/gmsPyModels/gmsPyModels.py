@@ -6,6 +6,8 @@ from gmsPython.gmsWrite.gmsWrite import StdArgs, FromDB
 from gmsPython.gamY.gamY import Precompiler
 from gmsPython.gmsPy.gmsPy import jTerms
 
+def checkAttr(obj, attr, default = None):
+	return getattr(obj, attr) if hasattr(obj, attr) else default
 
 class Model:
 	""" Simple shell for models defined with namespaces, databases, compiler etc.."""
@@ -17,7 +19,7 @@ class Model:
 		self.ns = noneInit(ns, {})
 		self.m = {}
 		self.cps = {} # checkpoints
-		self._asModule = asModule
+		self.asModule = asModule
 		self.dropattrs = ['cps','job','out_db'] # what attributes are dropped in exports
 
 	### 0: Properties/customized methods
@@ -35,8 +37,17 @@ class Model:
 	def data_folder(self):
 		return self.db.data_folder
 
+	def makePropertyDynamic(self, key, value = None):
+		""" create dynamic property out of "static" one """
+		self.addProperty(key, noneInit(value, getattr(self, key)))
+
+	def addProperty(self, key, value):
+		""" default dynamic property method """
+		setattr(self, f'_{key}', value)
+		setattr(type(self), key, property(fget = lambda self: getattr(self, f'_{key}'), fset = lambda self, value: setattr(self, f'_{key}', value)))
+
 	def __getstate__(self):
-		if not self._asModule:
+		if not self.asModule:
 			self._loadDbFrom = os.path.join(self.data_folder, self.db.name)
 			self.db.export()
 		return {key:value for key,value in self.__dict__.items() if key not in (self.dropattrs+['db'])}
@@ -44,7 +55,7 @@ class Model:
 	def __setstate__(self,dict_):
 		""" Don't include ws. Don't include db. """
 		self.__dict__ = dict_
-		if not self._asModule:
+		if not self.asModule:
 			self.db = GpyDB(dict_['_loadDbFrom'])
 			for m in self.m.values():
 				if isinstance(m, Model):
@@ -77,7 +88,7 @@ class Model:
 	def addModule(self, m, **kwargs):
 		if isinstance(m, Model):
 			self.m[m.name] = m
-			self.m[m.name]._asModule = True
+			self.m[m.name].asModule = True
 		else:
 			self.m[m.name] = Module(**kwargs)
 
@@ -101,33 +112,50 @@ class GModel(Model):
 	""" 'Model' class with some a lot of added structure """
 	def __init__(self, defaultModel = 'model_B', **kwargs):
 		super().__init__(**kwargs)
-		self.defaultModel = defaultModel # backup model
+		self.defaultModel = defaultModel # backup model state
 
 	def modelName(self, state = 'B', **kwargs):
 		return '_'.join(['M',self.name,state])
+	@property
+	def dynamicProperties(self):
+		return (n for n in self.__dict__ if n.startswith('_'))
+	def initDynamicProperties(self):
+		[self.addProperty(k[1:], getattr(self, k)) for k in self.dynamicProperties]
+	def __setstate__(self,dict_):
+		""" Don't include ws. Don't include db. """
+		self.__dict__ = dict_
+		if not self.asModule:
+			self.db = GpyDB(dict_['_loadDbFrom'])
+			for m in self.m.values():
+				if isinstance(m, Model):
+					m.db = self.db
+		self.initDynamicProperties()
+
 
 	# groups:
 	@property
-	def _groups(self):
+	def listGroups(self):
 		return (n for n in dir(type(self)) if n.startswith('group_'))
 	@property
-	def _metaGroups(self):
+	def listMetaGroups(self):
 		return (n for n in dir(type(self)) if n.startswith('metaGroup_'))
 	def initGroups(self):
-		self.groups = {g.name: g for g in (getattr(self, k) for k in self._groups)}
+		self.groups = {g.name: g for g in (getattr(self, k) for k in self.listGroups)}
 		[grp() for grp in self.groups.values()]; # initialize groups
-		metaGroups = {g.name: g for g in (getattr(self, k) for k in self._metaGroups)}
+		metaGroups = {g.name: g for g in (getattr(self, k) for k in self.listMetaGroups)}
 		[grp() for grp in metaGroups.values()]; # initialize metagroups
 		self.groups.update(metaGroups)
 
 	# model specs:
 	@property
-	def _models(self):
+	def listModels(self):
 		return (n for n in dir(type(self)) if n.startswith('model_'))
+
 	@property
 	def textBlocks(self):
 		""" dict where values are written as text blocks used to define equations of the model """
 		return {}
+
 	def getModel(self, state = 'B', **kwargs):
 		return getattr(self, f'model_{state}') if hasattr(self, f'model_{state}') else getattr(self,self.defaultModel)
 	def defineModel(self, **kwargs):
@@ -141,11 +169,13 @@ class GModel(Model):
 		return self.text+self.solveText(state = state)
 	def write(self, state = 'B'):
 		return self.compiler(self.write_gamY(state = state), has_read_file = False)
-	def _writeModel(self, n):
+
+	def writeModel(self, n):
 		return f"""$Model {n.replace('model', f'M_{self.name}',1)} {','.join(getattr(self,n))};"""
 	@property
 	def writeModels(self):
-		return '\n'.join([self._writeModel(n) for n in self._models])
+		return '\n'.join([self.writeModel(n) for n in self.listModels])
+
 	@property
 	def writeBlocks(self):
 		return ''.join(self.textBlocks.values())
