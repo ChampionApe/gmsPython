@@ -131,10 +131,10 @@ class Group:
 		[self.checkIfNone_out(name) for name in self.out];
 		[self.sub(x) for x in self.sub_v];
 		[self.subGroup(g) for g in sub_gs];
-		[self.checkIfNone_out_neg(name) for name in self.out_neg];
+		[self.checkIfNone_out_neg(name) for name in list(self.out_neg)];
 		[self.removeIte(name,conds) for name,conds in self.out_neg.items()];
-		[self.checkIfEmpty_out(name) for name in self.out];
-		[self.checkIfEmpty_out_neg(name) for name in self.out_neg];
+		[self.checkIfEmpty_out(name) for name in list(self.out)];
+		[self.checkIfEmpty_out_neg(name) for name in list(self.out_neg)];
 		return self
 
 	def declare(self, db = None, exceptions = None):
