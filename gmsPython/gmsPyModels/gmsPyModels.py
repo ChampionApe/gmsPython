@@ -226,18 +226,18 @@ class GModel(Model):
 """
 
 	# Solve methods 
-	def jSolve(self, n, state = 'B', loopName = 'i', ϕ = 1, solve = None):
+	def jSolve(self, n, state = 'B', loopName = 'i', ϕ = 1, solve = None, addJobOpt=None, runJobOpt=None):
 		""" Solve model from scratch using the jTerms approach."""
 		mainText = self.compiler(self.text, has_read_file = False)
 		jModelStr = self.j.jModel(self.modelName(state=state), self.groups.values(), db = self.db, solve = noneInit(solve, self.solveStatement(state = state))) # create string that declares adjusted $j$-terms
 		fixUnfix = self.j.group.fix()+self.unfixText(state=state)+self.j.solve
 		loopSolve = self.j.jLoop(n, loopName = loopName, ϕ = ϕ)
-		self.job = self.ws.add_job_from_string(mainText+jModelStr+fixUnfix+loopSolve)
-		self.job.run(databases = self.db.database)
+		self.job = self.ws.add_job_from_string(mainText+jModelStr+fixUnfix+loopSolve, **noneInit(addJobOpt, {}))
+		self.job.run(databases = self.db.database, **noneInit(runJobOpt, {}))
 		return GpyDB(self.job.out_db, ws = self.ws)
 
-	def solve(self, text = None, state = 'B'):
-		self.job = self.ws.add_job_from_string(noneInit(text, self.write(state = state)))
-		self.job.run(databases = self.db.database)
+	def solve(self, text = None, state = 'B', addJobOpt = None, runJobOpt = None):
+		self.job = self.ws.add_job_from_string(noneInit(text, self.write(state = state)), **noneInit(addJobOpt, {}))
+		self.job.run(databases = self.db.database, **noneInit(runJobOpt, {}))
 		self.out_db = GpyDB(self.job.out_db, ws = self.ws)
 		return self.out_db
