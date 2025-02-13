@@ -146,50 +146,59 @@ class AggTreeFromData(AggTree):
 			read_trees = {sheet: {} for sheet in gpyDB.DbFromExcel.sheetnames_from_wb(wb)}
 		self.trees = {t.name: t for t in (TreeFromData(wb,k,**v) for k,v in read_trees.items())}
 
-def trimNestingStructure(m, sparsity, maxIter = 10):
-	""" Trim nesting structure in pandas multiindex 'm' with a 'sparsity' pattern on the inputs. NB: Only works on pure input-like trees """
-	t = Tree(name = 'test', tree = m.tolist())()
+
+def trimNestingStructure(m, sparsity, type = 'input', maxIter = 10, keepIntKnots = False):
+	""" Trim nesting structure in pandas multiindex 'm' with a 'sparsity' pattern on the inputs. NB: Currently only works on pure input-like trees. """
+	return trimNestInput(m, sparsity, maxIter = maxIter, keepIntKnots = keepIntKnots)
+
+def trimNestInput(m, sparsity, maxIter = 10, keepIntKnots = False):
+	# Step 1: Split into sectors with only one input type and sectors with more than one
+	t = Tree('test', tree = m.tolist())()
 	nInputs = sparsity.to_frame(index=False).groupby('s').count().n
-	oneInputSectors = nInputs[nInputs == 1]
-	# Define new mapping for relevant sectors:
-	mapOneInput = pyDatabases.adjMultiIndex.applyMult(pyDatabases.adj.rc_pd(t.get('output'), oneInputSectors), 
-													  pyDatabases.adj.rc_pd(sparsity, oneInputSectors).rename(['s','nn']))
+	oneInputSectors = nInputs[nInputs == 1] # don't do anything for these
+	mapOneInput = pyDatabases.adjMultiIndex.applyMult(pyDatabases.adj.rc_pd(t.get('output'), oneInputSectors),
+	                                                  pyDatabases.adj.rc_pd(sparsity, oneInputSectors).rename(['s','nn']))
 	mMultipleGoods = pyDatabases.adj.rc_pd(m, ('not', oneInputSectors))
-	t = Tree(name = 'test', tree = mMultipleGoods.to_list())()
-	inputs = t.get('input')
-
-	# 2. Remove inputs that are not used:
-	noUse = pyDatabases.adj.rc_pd(t.get('input'), ('not', sparsity))
-	mMultipleGoods = pyDatabases.adj.rc_pd(t.get('map'), ('not', pyDatabases.adj.rc_pd(noUse, alias = {'n':'nn'})))
-
-	# 2.A: Number of nodes for each parent node in the system:
-	nNodes = mMultipleGoods.to_frame(index=False).groupby(['s','n']).count()
-
-	# Start iteration checks
-	i = 0
-	t = Tree(name = 'test', tree=mMultipleGoods.tolist())()
-	inputs_i = t.get('input')
-	while (min(nNodes['nn'])<=1) & (not inputs_i.difference(inputs).empty):
-		i = i+1
-		mMultipleGoods, nNodes, inputs_i = trim_ite(mMultipleGoods, nNodes)
-		mMultipleGoods = pyDatabases.adj.rc_pd(mMultipleGoods, ('not', inputs_i.difference(inputs).rename(['s','nn'])))
+	t = Tree('test', tree = mMultipleGoods.to_list())()
+	# Step 2: For sectors with multiple goods, use sparsity to remove inputs that are not in use
+	notUsed = pyDatabases.adj.rc_pd(t.get('input'), ('not', sparsity))
+	mMultipleGoods = pyDatabases.adj.rc_pd(t.get('map'), ('not', pyDatabases.adj.rc_pd(notUsed, alias = {'n':'nn'})))	
+	# Step 3: Iterate over trimming
+	t = Tree(name = 'test', tree = mMultipleGoods.tolist())()
+	i, status = 0, False
+	while status is False:
+		t, status = trimNestInput_ite(t, sparsity, keepIntKnots = keepIntKnots)
+		i += 1
 		if i==maxIter:
-			raise StopIteration("Tree trimming did not converge")
-	return mMultipleGoods.union(mapOneInput)
+			raise StopIteration("Tree trimming did not converge in {maxIter} iterations")
+	return t.get('map').union(mapOneInput)
 
-def trim_ite(m, nNodes):
-	# 2B: Define mapping where knots have a single node:
-	nodesOneChild = nNodes[nNodes['nn'] == 1].index
-	mapOneNode = pyDatabases.adj.rc_pd(m, nodesOneChild)
-	# We make an exception if a combination (s, x) enters as both a knot and a branch. In this case, we cannot remove the parent node of 'x' (as we need this to maintain the tree structure)
-	keepKnots = pyDatabases.adj.rc_pd(mapOneNode.droplevel('nn').unique(), mapOneNode.droplevel('n').rename(['s','n']))
-	nodesOneChild = nodesOneChild.difference(keepKnots)
-	mapOneNode = pyDatabases.adj.rc_pd(m, nodesOneChild)
-	m = pyDatabases.adj.rc_pd(m, ('not', nodesOneChild))
-	# Apply map to change parent nodes
-	mapNewNodes = pyDatabases.adjMultiIndex.applyMult(m, mapOneNode.rename(['s','nn','new'])).droplevel('nn').rename(['s','n','nn'])
-	m = pyDatabases.adj.rc_pd(m, ('not', nodesOneChild.rename(['s','nn']))).union(mapNewNodes)
-	# 2A: Return number of nodes for each one now:
-	nNodes = m.to_frame(index = False).groupby(['s','n']).count()
-	t = Tree(name='test', tree = m.tolist())()
-	return m, nNodes, t.get('input')
+def trimNestInput_ite(t, sparsity, keepIntKnots = False):
+	# i. If a branch is identified as in input in the nesting tree, but this is not an input in the sparsity tree --> remove branch entirely from the nesting tree.
+	delBranch = pyDatabases.adj.rc_pd(t.get('input'), ('not', sparsity))
+	t = Tree(name = 'test', tree = pyDatabases.adj.rc_pd(t.get('map'), ('not', delBranch.rename(['s','nn']))).tolist())()
+
+	# ii. If a parent node (n) has a single branch (nn) *and* this branch is not an input in the nesting tree --> remove this specific link (n,nn) and replace branch name with parent name in the set (n).
+	nNodes = t.get('map').to_frame(index=False).groupby(['s','n']).count() # number of nodes per parent node
+	nodesOneBranch = nNodes[nNodes['nn']==1].index # parent nodes with one branch
+	links = pyDatabases.adj.rc_pd(t.get('map'), ('and', [nodesOneBranch, ('not', t.get('input').rename(['s','nn']))])) # relevant links in the nesting structure 
+	# Remove links, then replace branch with parent name in the set n:
+	m = pyDatabases.adj.rc_pd(t.get('map'), ('not', links))
+	newLinks = pyDatabases.adjMultiIndex.applyMult(m, links.rename(['s','x','n'])).droplevel('n').reorder_levels(['s','x','nn']).rename(m.names)
+	unrelated = pyDatabases.adj.rc_pd(m, ('not', links.droplevel('n').rename(['s','n'])))
+	t = Tree(name = 'test', tree = (newLinks.union(unrelated)).tolist())()
+
+	# iii. If a parent node (n) has a single branch (nn) *and* this branch is an input in the nesting tree --> remove this specific link (n,nn) and replace parent name with branch name in the set (nn).
+	if not keepIntKnots:
+		nNodes = t.get('map').to_frame(index=False).groupby(['s','n']).count()
+		nodesOneBranch = nNodes[nNodes['nn']==1].index
+		linksInp = pyDatabases.adj.rc_pd(t.get('map'), ('and', [nodesOneBranch, t.get('input').rename(['s','nn'])]))
+		# Remove links, then replace parent node with branch in the set (n):
+		m = pyDatabases.adj.rc_pd(t.get('map'), ('not', linksInp))
+		newLinks = pyDatabases.adjMultiIndex.applyMult(m, linksInp.rename(['s','nn','x'])).droplevel('nn').rename(m.names)
+		unrelated = pyDatabases.adj.rc_pd(m, ('not', linksInp.droplevel('nn').rename(['s','nn'])))
+		t = Tree(name = 'test', tree = (newLinks.union(unrelated)).tolist())()
+		return t, all([delBranch.empty, links.empty, linksInp.empty])
+	else:
+		return t, all([delBranch.empty, links.empty])
+
