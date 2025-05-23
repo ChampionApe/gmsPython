@@ -1,5 +1,5 @@
 from gmsPython.auxfuncs import *
-from pyDatabases import gpyDB, OrdSet, noneInit
+# from pyDatabases import gpyDB, OrdSet, noneInit
 
 default_user_functions = """
 # User defined functions:

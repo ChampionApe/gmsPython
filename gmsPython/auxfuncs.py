@@ -1,5 +1,5 @@
 import numpy as np, pandas as pd, pyDatabases
-from pyDatabases import noneInit, gpyDB
+from pyDatabases import noneInit, gpyDB, OrdSet
 
 def concatMultiIndices(l, names = None):
 	if l:

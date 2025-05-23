@@ -1,5 +1,5 @@
 from gmsPython.auxfuncs import *
-_ftype_inputs, _ftype_outputs = ('CES','CES_norm','MNL'), ('CET','CET_norm','MNL_out')
+_ftype_inputs, _ftype_outputs = ('CES','CES_scaled','CES_norm','MNL'), ('CET','CET_scaled','CET_norm','MNL_out')
 _scalePreserving = ('CES_norm','CET_norm','MNL','MNL_out')
 
 def checkOrIgnore(d,k):

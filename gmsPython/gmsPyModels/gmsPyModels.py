@@ -1,6 +1,6 @@
 from gmsPython.auxfuncs import *
 import os, pickle
-from pyDatabases import noneInit
+# from pyDatabases import noneInit
 from pyDatabases.gpyDB import GpyDB
 from gmsPython.gmsWrite.gmsWrite import StdArgs, FromDB
 from gmsPython.gamY.gamY import Precompiler
@@ -11,10 +11,10 @@ def checkAttr(obj, attr, default = None):
 
 class Model:
 	""" Simple shell for models defined with namespaces, databases, compiler etc.."""
-	def __init__(self, name = None, ns = None, database = None, asModule = False, **kwargs):
+	def __init__(self, name = None, ns = None, database = None, compiler = None, asModule = False, **kwargs):
 		self.db = noneInit(database, GpyDB(**kwargs))
 		self.name = name
-		self.compiler = Precompiler()
+		self.compiler = noneInit(compiler, Precompiler())
 		self.j = jTerms(self.compiler)
 		self.ns = noneInit(ns, {})
 		self.m = {}
