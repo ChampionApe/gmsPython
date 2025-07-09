@@ -8,10 +8,10 @@ def reverseDict(d):
 	return {v:k for k,v in d.items()}
 
 class Tree:
-	def __init__(self, name, tree = None, db = None, f = None,**ns):
+	def __init__(self, name, tree = None, db = None, f = None, io = None, **ns):
 		self.name = name
 		self.db = noneInit(db,{})
-		self.addFunctionandIO(f)
+		self.addFunctionandIO(f, io = None)
 		self.scalePreserving = True if self.f in _scalePreserving else False
 		self.ns = self.standardNamespace | ns
 		self.tree = noneInit(tree,[])
@@ -20,9 +20,9 @@ class Tree:
 	def standardNamespace(self):
 		return {k: f'{self.name}_{k}' for k in ('map','knot','branch','input','output','int')}
 
-	def addFunctionandIO(self,f):
-		self.f = 'CES' if f is None else f
-		self.io = 'input' if self.f in _ftype_inputs else 'output' 
+	def addFunctionandIO(self,f,io = None):
+		self.f = noneInit(f, 'CES')
+		self.io = noneInit(io, 'output' if self.f in _ftype_outputs else 'input')
 
 	def __getitem__(self,item):
 		try:
@@ -106,6 +106,7 @@ class AggTree:
 		[self.db.aom_gpy(s) for name,s in tree.db.items() if checkOrIgnore(reverseDict(tree.ns), name) not in self.prune];
 
 	def attrsFromTrees(self):
+		self.ioTypes = set([ti.io for ti in self.trees.values()])
 		self['n'] = pd.Index(set.union(*[set(tree.get('n')) for tree in self.trees.values()]), name = self.n('n'))
 		self['s'] = pd.Index(set.union(*[set(tree.get('s')) for tree in self.trees.values()]), name = self.n('s'))
 		self['map'] = concatMultiIndices([tree.get('map') for tree in self.trees.values()])
@@ -136,6 +137,70 @@ class AggTree:
 		[tree.ns.__setitem__(k,f'{tree.name}_{k}') for k in ('branch_o','branch_no')];
 		tree['branch_o'] = tree.get('branch').intersection(self.get('output'))
 		tree['branch_no'] = tree.get('branch').difference(tree.get('branch_o'))
+
+	# Additional methods after __call__ has been called  
+
+	def applyNamespace(self, symbol, level = -1):
+		if self.namespace:
+			return symbol.set_levels(symbol.levels[level].map({k: self.namespace[k] if k in self.namespace else k for k in symbol.levels[level]}), level = level)
+		else:
+			return symbol
+
+	@property
+	def mapOut(self):
+		if 'output' in self.ioTypes:
+			return self.applyNamespace(stackIndices([ti.get('map') for ti in self.trees.values() if ti.io == 'output']))
+		else:
+			return pd.MultiIndex.from_tuples([], names = ['s','n','nn'])
+	@property
+	def knotOutTree(self):
+		if 'output' in self.ioTypes:
+			return self.applyNamespace(stackIndices([ti.get('knot') for ti in self.trees.values() if ti.io == 'output']))
+		else:
+			return pd.MultiIndex.from_tuples([], names = ['s','n'])
+	@property
+	def branchOut(self):
+		if 'output' in self.ioTypes:
+			return self.applyNamespace(stackIndices([ti.get('branch_o') for ti in self.trees.values() if ti.io == 'output']))
+		else:
+			return pd.MultiIndex.from_tuples([], names = ['s','n'])
+	@property
+	def branchNOut(self):
+		if 'output' in self.ioTypes:
+			return self.applyNamespace(stackIndices([ti.get('branch_no') for ti in self.trees.values() if ti.io == 'output']))
+		else:
+			return pd.MultiIndex.from_tuples([], names = ['s','n'])
+	@property
+	def mapInp(self):
+		if 'input' in self.ioTypes:
+			return self.applyNamespace(stackIndices([ti.get('map') for ti in self.trees.values() if ti.io == 'input']))
+		else:
+			return pd.MultiIndex.from_tuples([], names = ['s','n','nn'])
+	@property
+	def knotOut(self):
+		if 'input' in self.ioTypes:
+			return self.applyNamespace(stackIndices([ti.get('knot_o') for ti in self.trees.values() if ti.io == 'input']))
+		else:
+			return pd.MultiIndex.from_tuples([], names = ['s','n'])
+	@property
+	def knotNOut(self):
+		if 'input' in self.ioTypes:
+			return self.applyNamespace(stackIndices([ti.get('knot_no') for ti in self.trees.values() if ti.io == 'input']))
+		else:
+			return pd.MultiIndex.from_tuples([], names = ['s','n'])
+	@property
+	def branch2Out(self):
+		if 'input' in self.ioTypes:
+			return self.applyNamespace(stackIndices([ti.get('branch2o') for ti in self.trees.values() if ti.io == 'input']))
+		else:
+			return pd.MultiIndex.from_tuples([], names = ['s','n'])
+	@property
+	def branch2NOut(self):
+		if 'input' in self.ioTypes:
+			return self.applyNamespace(stackIndices([ti.get('branch2no') for ti in self.trees.values() if ti.io == 'input']))
+		else:
+			return pd.MultiIndex.from_tuples([], names = ['s','n'])
+
 
 class AggTreeFromData(AggTree):
 	def __init__(self,file_path,read_trees=None,name="",**ns):
